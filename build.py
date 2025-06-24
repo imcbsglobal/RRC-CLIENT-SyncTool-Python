@@ -56,13 +56,26 @@ except subprocess.CalledProcessError:
 
 # Create distribution folder
 print("Creating distribution package...")
+if os.path.exists("sync_tool"):
+    shutil.rmtree("sync_tool")  # Clean old package if any
 os.makedirs("sync_tool", exist_ok=True)
+
+# Create the sync_silent.vbs file dynamically
+vbs_code = '''Set fso = CreateObject("Scripting.FileSystemObject")
+Set shell = CreateObject("WScript.Shell")
+batPath = fso.GetParentFolderName(WScript.ScriptFullName) & "\\sync.bat"
+shell.Run """" & batPath & """", 0, True
+'''
+
+with open(os.path.join("sync_tool", "sync_silent.vbs"), "w") as f:
+    f.write(vbs_code)
+
 
 # Copy files to distribution folder
 shutil.copy(os.path.join(OUTPUT_DIR, "sync.exe"), "sync_tool")
 shutil.copy("config.json", "sync_tool")
 shutil.copy("sync.bat", "sync_tool")
-shutil.copy("sync_silent.vbs", "sync_tool")
+
 
 # Create an empty log file
 with open(os.path.join("sync_tool", "sync.log"), "w") as f:

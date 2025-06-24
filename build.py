@@ -62,6 +62,7 @@ os.makedirs("sync_tool", exist_ok=True)
 shutil.copy(os.path.join(OUTPUT_DIR, "sync.exe"), "sync_tool")
 shutil.copy("config.json", "sync_tool")
 shutil.copy("sync.bat", "sync_tool")
+shutil.copy("sync_silent.vbs", "sync_tool")
 
 # Create an empty log file
 with open(os.path.join("sync_tool", "sync.log"), "w") as f:

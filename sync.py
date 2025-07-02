@@ -54,7 +54,7 @@ HARD_CODED_CONFIG = {
             "target_table": "acc_product"
         }
     ],
-    "target_database": "detector_test_db",
+    "target_database": "sysmac_imc",
     "sync": {
         "batchSize": 1000
     },

@@ -38,9 +38,22 @@ logger = logging.getLogger(__name__)
 
 CONFIG_FILE = 'config.json'
 
-# Hard-coded configuration values
+# Hard-coded configuration values - Updated to include all three tables
 HARD_CODED_CONFIG = {
-    "table_name": "rrc_clients",
+    "tables": [
+        {
+            "name": "rrc_clients",
+            "target_table": "rrc_clients"
+        },
+        {
+            "name": "acc_master", 
+            "target_table": "acc_master"
+        },
+        {
+            "name": "acc_product",
+            "target_table": "acc_product"
+        }
+    ],
     "target_database": "detector_test_db",
     "sync": {
         "batchSize": 1000
@@ -54,7 +67,7 @@ HARD_CODED_CONFIG = {
 
 def print_header():
     """Print a nice header for the application"""
-    header_msg = "\n" + "=" * 70 + "\n              🚀 OMEGA DATABASE SYNC TOOL 🚀\n" + "=" * 70 + f"\nStarted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n" + "=" * 70 + "\n"
+    header_msg = "\n" + "=" * 70 + "\n              🚀 SYSMAC DATABASE SYNC TOOL 🚀\n" + "=" * 70 + f"\nStarted at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n" + "=" * 70 + "\n"
     print(header_msg)
     logger.info("Sync tool started")
 
@@ -162,65 +175,119 @@ def execute_query(conn, query):
         return []
 
 
-def fetch_data(conn, config):
-    """Fetch data from the specified table with the given criteria"""
-    print("📊 FETCHING DATA FROM DATABASE")
-    print("-" * 50)
-    logger.info("Starting data fetch from database")
+def get_table_query(table_name):
+    """Get the appropriate SQL query for each table"""
+    queries = {
+        "rrc_clients": f'''
+            SELECT 
+              "{table_name}"."code",
+              "{table_name}"."name",
+              "{table_name}"."address",
+              "{table_name}"."branch",
+              "{table_name}"."district",
+              "{table_name}"."state",
+              "rrc_product"."name" AS "software",
+              "{table_name}"."mobile",
+              "{table_name}"."installationdate",
+              "{table_name}"."priorty",
+              "{table_name}"."directdealing",
+              "{table_name}"."rout",
+              "{table_name}"."amc",
+              "{table_name}"."amcamt",
+              "{table_name}"."accountcode",
+              "{table_name}"."address3",
+              "{table_name}"."lictype",
+              "{table_name}"."clients",
+              "{table_name}"."sp",
+              "{table_name}"."nature"
+            FROM "{table_name}"
+            LEFT JOIN "rrc_product" ON "{table_name}"."software" = "rrc_product"."code"
+            WHERE "{table_name}"."directdealing" IN ('Y','S')
+        ''',
+        
+        "acc_master": f'''
+            SELECT 
+              "{table_name}"."code",
+              "{table_name}"."name",
+              "{table_name}"."super_code",
+              "{table_name}"."opening_balance",
+              "{table_name}"."debit",
+              "{table_name}"."credit",
+              "{table_name}"."place",
+              "{table_name}"."phone2",
+              "{table_name}"."openingdepartment"
+            FROM "{table_name}"
+            WHERE "{table_name}"."super_code" = 'DEBTO'
+        ''',
+        
+        "acc_product": f'''
+            SELECT 
+              "{table_name}"."code",
+              "{table_name}"."name",
+              "{table_name}"."catagory",
+              "{table_name}"."unit",
+              "{table_name}"."taxcode",
+              "{table_name}"."company",
+              "{table_name}"."product",
+              "{table_name}"."brand",
+              "{table_name}"."text6"
+            FROM "{table_name}"
+        '''
+    }
+    
+    return queries.get(table_name, "")
 
-    table_name = config['table_name']
 
-    # Your specified SQL query
-    query = f'''
-        SELECT 
-          "{table_name}"."code",
-          "{table_name}"."name",
-          "{table_name}"."address",
-          "{table_name}"."branch",
-          "{table_name}"."district",
-          "{table_name}"."state",
-          "rrc_product"."name" AS "software",
-          "{table_name}"."mobile",
-          "{table_name}"."installationdate",
-          "{table_name}"."priorty",
-          "{table_name}"."directdealing",
-          "{table_name}"."rout",
-          "{table_name}"."amc",
-          "{table_name}"."amcamt",
-          "{table_name}"."accountcode",
-          "{table_name}"."address3",
-          "{table_name}"."lictype",
-          "{table_name}"."clients",
-          "{table_name}"."sp",
-          "{table_name}"."nature"
-        FROM "{table_name}"
-        LEFT JOIN "rrc_product" ON "{table_name}"."software" = "rrc_product"."code"
-        WHERE "{table_name}"."directdealing" IN ('Y','S')
-    '''
+def fetch_data_from_table(conn, table_name):
+    """Fetch data from a specific table"""
+    print(f"📊 Fetching data from {table_name}...")
+    logger.info(f"Starting data fetch from {table_name}")
 
-    print(f"1. Fetching {table_name}...", end=" ", flush=True)
+    query = get_table_query(table_name)
+    
+    if not query:
+        print(f"❌ No query defined for table: {table_name}")
+        logger.error(f"No query defined for table: {table_name}")
+        return []
+
+    print(f"   → Executing query for {table_name}...", end=" ", flush=True)
 
     results = execute_query(conn, query)
 
     print(f"✅ {len(results):,} records")
     logger.info(f"Fetched {len(results)} records from {table_name}")
 
-    print("-" * 50)
-    print(f"📈 TOTAL RECORDS TO SYNC: {len(results):,}")
-    print()
-
     return results
 
 
-def sync_data_to_api(data, config):
-    """Sync data to the API server using the simplified /api/sync endpoint"""
+def fetch_all_data(conn, config):
+    """Fetch data from all configured tables"""
+    print("📊 FETCHING DATA FROM ALL TABLES")
+    print("-" * 50)
+    logger.info("Starting data fetch from all tables")
+
+    all_data = {}
+    total_records = 0
+
+    for table_config in config['tables']:
+        table_name = table_config['name']
+        target_table = table_config['target_table']
+        
+        data = fetch_data_from_table(conn, table_name)
+        all_data[target_table] = data
+        total_records += len(data)
+
+    print("-" * 50)
+    print(f"📈 TOTAL RECORDS TO SYNC: {total_records:,}")
+    print()
+
+    return all_data
+
+
+def sync_table_to_api(table_name, data, config):
+    """Sync a single table's data to the API server"""
     try:
         api_base_url = config['api']['url']
-        table_name = config['table_name']
-
-        print(f"🌐 API Server: {api_base_url}")
-        logger.info(f"Starting API sync to: {api_base_url}")
-        print()
 
         headers = {
             'Content-Type': 'application/json'
@@ -229,13 +296,10 @@ def sync_data_to_api(data, config):
         # API endpoint
         sync_endpoint = f"{api_base_url}/api/sync"
 
-        print("📤 SYNCING DATA TO API")
-        print("-" * 50)
-
         if not data:
-            print("❌ No data to sync")
-            logger.warning("No data to sync")
-            return False
+            print(f"⚠️  No data to sync for {table_name}")
+            logger.warning(f"No data to sync for {table_name}")
+            return True
 
         print(f"📦 Syncing {len(data):,} records to {table_name}...")
         logger.info(f"Syncing {len(data)} records to {table_name}")
@@ -246,14 +310,14 @@ def sync_data_to_api(data, config):
             "data": data
         }
 
-        print(f"📡 Sending data to API...", end=" ", flush=True)
+        print(f"📡 Sending {table_name} data to API...", end=" ", flush=True)
 
         success = False
         for retry in range(3):  # 3 retries
             try:
                 if retry > 0:
-                    print(f"\n🔄 Attempt {retry + 1}/3...", end=" ", flush=True)
-                    logger.info(f"Retry attempt {retry + 1}/3")
+                    print(f"\n🔄 Attempt {retry + 1}/3 for {table_name}...", end=" ", flush=True)
+                    logger.info(f"Retry attempt {retry + 1}/3 for {table_name}")
 
                 response = requests.post(
                     sync_endpoint,
@@ -263,7 +327,7 @@ def sync_data_to_api(data, config):
                 )
 
                 print(f"Status: {response.status_code}")
-                logger.info(f"API response status: {response.status_code}")
+                logger.info(f"API response status for {table_name}: {response.status_code}")
 
                 if response.status_code == 200:
                     response_data = response.json()
@@ -271,76 +335,124 @@ def sync_data_to_api(data, config):
                     if response_data.get('success', False):
                         success = True
                         records_processed = response_data.get('records_processed', len(data))
-                        success_msg = f"Success! Processed {records_processed} records. Table {table_name} cleared and data inserted"
+                        success_msg = f"Success! Processed {records_processed} records for {table_name}. Table cleared and data inserted"
                         print(f"✅ Success! Processed {records_processed:,} records")
                         print(f"🔥 Table {table_name} cleared and data inserted")
                         logger.info(success_msg)
                         break
                     else:
                         error_msg = response_data.get('error', 'Unknown error')
-                        print(f"❌ API Error: {error_msg}")
-                        logger.error(f"API Error: {error_msg}")
+                        print(f"❌ API Error for {table_name}: {error_msg}")
+                        logger.error(f"API Error for {table_name}: {error_msg}")
                 else:
-                    error_msg = f"HTTP Error {response.status_code}"
+                    error_msg = f"HTTP Error {response.status_code} for {table_name}"
                     print(f"❌ {error_msg}")
                     logger.error(error_msg)
                     try:
                         error_data = response.json()
                         print(f"   Error details: {error_data}")
-                        logger.error(f"Error details: {error_data}")
+                        logger.error(f"Error details for {table_name}: {error_data}")
                     except:
                         print(f"   Response text: {response.text[:200]}")
-                        logger.error(f"Response text: {response.text[:200]}")
+                        logger.error(f"Response text for {table_name}: {response.text[:200]}")
 
                 if retry < 2:  # Don't sleep on last attempt
-                    print(f"⏳ Retrying in 5 seconds...")
+                    print(f"⏳ Retrying {table_name} in 5 seconds...")
                     time.sleep(5)
 
             except requests.exceptions.Timeout:
-                error_msg = "Timeout error (5 minutes)"
+                error_msg = f"Timeout error for {table_name} (5 minutes)"
                 print(f"⏱️  {error_msg}")
                 logger.error(error_msg)
                 if retry < 2:
-                    print(f"⏳ Retrying in 5 seconds...")
+                    print(f"⏳ Retrying {table_name} in 5 seconds...")
                     time.sleep(5)
             except requests.exceptions.ConnectionError:
-                error_msg = f"Connection error - Check if Django server is running at {api_base_url}"
-                print(f"🔌 Connection error")
+                error_msg = f"Connection error for {table_name} - Check if Django server is running at {api_base_url}"
+                print(f"🔌 Connection error for {table_name}")
                 print(f"   → Check if Django server is running at {api_base_url}")
                 logger.error(error_msg)
                 if retry < 2:
-                    print(f"⏳ Retrying in 5 seconds...")
+                    print(f"⏳ Retrying {table_name} in 5 seconds...")
                     time.sleep(5)
             except Exception as e:
-                error_msg = f"Unexpected error: {str(e)}"
-                print(f"💥 Unexpected error: {str(e)}")
+                error_msg = f"Unexpected error for {table_name}: {str(e)}"
+                print(f"💥 Unexpected error for {table_name}: {str(e)}")
                 logger.error(error_msg)
                 if retry < 2:
-                    print(f"⏳ Retrying in 5 seconds...")
+                    print(f"⏳ Retrying {table_name} in 5 seconds...")
                     time.sleep(5)
 
         if not success:
-            failure_msg = f"Failed to sync data after 3 attempts. {len(data)} records were not synced"
-            print(f"\n❌ Failed to sync data after 3 attempts")
-            print(f"   This means {len(data):,} records were not synced")
+            failure_msg = f"Failed to sync {table_name} after 3 attempts. {len(data)} records were not synced"
+            print(f"\n❌ Failed to sync {table_name} after 3 attempts")
+            print(f"   This means {len(data):,} records were not synced for {table_name}")
             logger.error(failure_msg)
-            print(f"   Please check:")
-            print(f"   • Django server is running at {api_base_url}")
-            print(f"   • Database connection is working")
-            print(f"   • No firewall blocking the connection")
             return False
 
-        success_msg = f"Sync completed successfully! Total records processed: {len(data)}"
-        print(f"🎉 Sync completed successfully!")
-        print(f"📊 Total records processed: {len(data):,}")
-        logger.info(success_msg)
+        print(f"🎉 {table_name} sync completed successfully!")
         print()
-
         return True
 
     except Exception as e:
-        error_msg = f"Sync Error: {str(e)}"
-        print(f"\n❌ Sync Error: {str(e)}")
+        error_msg = f"Sync Error for {table_name}: {str(e)}"
+        print(f"\n❌ Sync Error for {table_name}: {str(e)}")
+        logger.error(error_msg)
+        import traceback
+        traceback_msg = traceback.format_exc()
+        print(f"Full traceback for {table_name}:")
+        print(traceback_msg)
+        logger.error(f"Full traceback for {table_name}: {traceback_msg}")
+        return False
+
+
+def sync_all_data_to_api(all_data, config):
+    """Sync all tables' data to the API server"""
+    try:
+        api_base_url = config['api']['url']
+
+        print(f"🌐 API Server: {api_base_url}")
+        logger.info(f"Starting API sync to: {api_base_url}")
+        print()
+
+        print("📤 SYNCING ALL TABLES TO API")
+        print("-" * 50)
+
+        success_count = 0
+        total_tables = len(all_data)
+        total_records_synced = 0
+
+        for table_name, data in all_data.items():
+            print(f"\n📋 Processing table: {table_name}")
+            success = sync_table_to_api(table_name, data, config)
+            
+            if success:
+                success_count += 1
+                total_records_synced += len(data)
+            
+            print("-" * 30)
+
+        # Final summary
+        print(f"\n📊 SYNC SUMMARY:")
+        print(f"   → Tables processed: {total_tables}")
+        print(f"   → Tables successful: {success_count}")
+        print(f"   → Tables failed: {total_tables - success_count}")
+        print(f"   → Total records synced: {total_records_synced:,}")
+
+        if success_count == total_tables:
+            success_msg = f"All {total_tables} tables synced successfully! Total records: {total_records_synced}"
+            print(f"🎉 All {total_tables} tables synced successfully!")
+            logger.info(success_msg)
+            return True
+        else:
+            failure_msg = f"Only {success_count}/{total_tables} tables synced successfully"
+            print(f"⚠️  Only {success_count}/{total_tables} tables synced successfully")
+            logger.warning(failure_msg)
+            return False
+
+    except Exception as e:
+        error_msg = f"Overall Sync Error: {str(e)}"
+        print(f"\n❌ Overall Sync Error: {str(e)}")
         logger.error(error_msg)
         import traceback
         traceback_msg = traceback.format_exc()
@@ -363,18 +475,20 @@ def main():
         print(f"   → Database DSN: {config['database']['dsn']}")
         print(f"   → Database User: {config['database']['username']}")
         print(f"   → API Server: {config['api']['url']}")
-        print(f"   → Table: {config['table_name']}")
-        logger.info(f"Config - DSN: {config['database']['dsn']}, API: {config['api']['url']}, Table: {config['table_name']}")
+        print(f"   → Tables to sync: {len(config['tables'])}")
+        for table_config in config['tables']:
+            print(f"     • {table_config['name']} → {table_config['target_table']}")
+        logger.info(f"Config - DSN: {config['database']['dsn']}, API: {config['api']['url']}, Tables: {len(config['tables'])}")
         print()
 
         # Connect to database
         conn = connect_to_database(config)
 
-        # Fetch data
-        data = fetch_data(conn, config)
+        # Fetch data from all tables
+        all_data = fetch_all_data(conn, config)
 
-        # Sync data to API
-        success = sync_data_to_api(data, config)
+        # Sync all data to API
+        success = sync_all_data_to_api(all_data, config)
 
         # Close connection
         conn.close()
@@ -383,11 +497,11 @@ def main():
         print()
 
         if success:
-            success_msg = "SYNC COMPLETED SUCCESSFULLY!"
+            success_msg = "ALL TABLES SYNC COMPLETED SUCCESSFULLY!"
             print("=" * 70)
-            print("           🎉 SYNC COMPLETED SUCCESSFULLY! 🎉")
+            print("           🎉 ALL TABLES SYNC COMPLETED SUCCESSFULLY! 🎉")
             print("=" * 70)
-            print("✅ All data has been synchronized to the API server")
+            print("✅ All tables have been synchronized to the API server")
             print(f"✅ Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logger.info(success_msg)
             logger.info(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -400,9 +514,9 @@ def main():
                 time.sleep(1)
             sys.exit(0)
         else:
-            failure_msg = "SYNC FAILED!"
+            failure_msg = "SOME TABLES SYNC FAILED!"
             print("=" * 70)
-            print("            ❌ SYNC FAILED! ❌")
+            print("            ⚠️  SOME TABLES SYNC FAILED! ⚠️")
             print("=" * 70)
             logger.error(failure_msg)
             print("Please check the errors above and try again.")
